@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Chat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: #4CAF50;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 100%;
+        }
+        
+        .room-setup {
+            padding: 20px;
+            background: white;
+            margin: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .room-setup input {
+            width: 100%;
+            max-width: 300px;
+            padding: 12px;
+            margin: 10px 0;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+        
+        .room-setup button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        
+        .room-setup button:hover {
+            background: #45a049;
+        }
+        
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background: white;
+            margin: 0 10px;
+            border-radius: 8px 8px 0 0;
+            max-height: 400px;
+        }
+        
+        .message {
+            margin: 8px 0;
+            padding: 8px 12px;
+            border-radius: 12px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        
+        .message.own {
+            background: #4CAF50;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+        
+        .message.other {
+            background: #e0e0e0;
+            color: black;
+            margin-right: auto;
+        }
+        
+        .message-info {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 3px;
+        }
+        
+        .input-area {
+            display: flex;
+            padding: 10px;
+            background: white;
+            margin: 0 10px 10px 10px;
+            border-radius: 0 0 8px 8px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .input-area input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 20px;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        
+        .input-area button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        
+        .input-area button:hover {
+            background: #45a049;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .status {
+            text-align: center;
+            padding: 10px;
+            background: #fff3cd;
+            margin: 10px;
+            border-radius: 6px;
+            border: 1px solid #ffeaa7;
+        }
+        
+        .online-users {
+            background: #e8f5e8;
+            padding: 8px;
+            margin: 10px;
+            border-radius: 6px;
+            text-align: center;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        Simple Chat - London ↔ Telangana
+    </div>
+    
+    <div id="roomSetup" class="room-setup">
+        <h3>Enter Chat Room</h3>
+        <input type="text" id="username" placeholder="Your name" maxlength="20">
+        <br>
+        <input type="text" id="roomCode" placeholder="Room code (e.g., FRIENDS123)" maxlength="20">
+        <br>
+        <button onclick="joinRoom()">Join Chat</button>
+        <br><br>
+        <p style="font-size: 14px; color: #666;">
+            Both users should use the same room code to chat together.
+        </p>
+    </div>
+    
+    <div id="chatArea" class="chat-container hidden">
+        <div class="online-users" id="onlineUsers">
+            Users online: 1
+        </div>
+        
+        <div class="messages" id="messages">
+            <div class="status">
+                Welcome! Share this room code with your friend: <strong id="currentRoom"></strong>
+            </div>
+        </div>
+        
+        <div class="input-area">
+            <input type="text" id="messageInput" placeholder="Type your message..." maxlength="500">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = '';
+        let currentRoom = '';
+        let messages = [];
+        let users = new Set();
+        
+        // Simple storage using page refresh simulation
+        function saveToStorage(key, data) {
+            try {
+                if (typeof data === 'object') {
+                    localStorage.setItem(key, JSON.stringify(data));
+                } else {
+                    localStorage.setItem(key, data);
+                }
+            } catch(e) {
+                // Fallback if localStorage not available
+                window[key] = data;
+            }
+        }
+        
+        function getFromStorage(key) {
+            try {
+                const item = localStorage.getItem(key);
+                if (!item) return null;
+                try {
+                    return JSON.parse(item);
+                } catch {
+                    return item;
+                }
+            } catch(e) {
+                // Fallback if localStorage not available
+                return window[key] || null;
+            }
+        }
+        
+        function joinRoom() {
+            const username = document.getElementById('username').value.trim();
+            const roomCode = document.getElementById('roomCode').value.trim().toUpperCase();
+            
+            if (!username || !roomCode) {
+                alert('Please enter both your name and room code');
+                return;
+            }
+            
+            if (username.length > 20 || roomCode.length > 20) {
+                alert('Name and room code must be 20 characters or less');
+                return;
+            }
+            
+            currentUser = username;
+            currentRoom = roomCode;
+            
+            // Save user info
+            saveToStorage('currentUser', currentUser);
+            saveToStorage('currentRoom', currentRoom);
+            
+            // Load existing messages for this room
+            messages = getFromStorage('messages_' + currentRoom) || [];
+            users = new Set(getFromStorage('users_' + currentRoom) || []);
+            users.add(currentUser);
+            saveToStorage('users_' + currentRoom, Array.from(users));
+            
+            // Show chat area
+            document.getElementById('roomSetup').classList.add('hidden');
+            document.getElementById('chatArea').classList.remove('hidden');
+            document.getElementById('currentRoom').textContent = currentRoom;
+            
+            updateUI();
+            
+            // Add join message
+            addSystemMessage(currentUser + ' joined the chat');
+            
+            // Auto-refresh every 3 seconds to get new messages
+            setInterval(refreshMessages, 3000);
+        }
+        
+        function sendMessage() {
+            const messageText = document.getElementById('messageInput').value.trim();
+            if (!messageText) return;
+            
+            const message = {
+                id: Date.now() + '_' + Math.random(),
+                text: messageText,
+                user: currentUser,
+                timestamp: new Date().toLocaleTimeString(),
+                room: currentRoom
+            };
+            
+            messages.push(message);
+            saveToStorage('messages_' + currentRoom, messages);
+            
+            document.getElementById('messageInput').value = '';
+            updateUI();
+            
+            // Keep only last 50 messages to prevent storage issues
+            if (messages.length > 50) {
+                messages = messages.slice(-50);
+                saveToStorage('messages_' + currentRoom, messages);
+            }
+        }
+        
+        function addSystemMessage(text) {
+            const message = {
+                id: Date.now() + '_system',
+                text: text,
+                user: 'SYSTEM',
+                timestamp: new Date().toLocaleTimeString(),
+                room: currentRoom
+            };
+            
+            messages.push(message);
+            saveToStorage('messages_' + currentRoom, messages);
+            updateUI();
+        }
+        
+        function refreshMessages() {
+            const latestMessages = getFromStorage('messages_' + currentRoom) || [];
+            const latestUsers = new Set(getFromStorage('users_' + currentRoom) || []);
+            
+            // Check for new messages
+            if (latestMessages.length > messages.length) {
+                messages = latestMessages;
+                updateUI();
+            }
+            
+            // Update users count
+            if (latestUsers.size !== users.size) {
+                users = latestUsers;
+                updateUI();
+            }
+        }
+        
+        function updateUI() {
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML = '';
+            
+            if (messages.length === 0) {
+                messagesDiv.innerHTML = '<div class="status">Welcome! Share this room code with your friend: <strong>' + currentRoom + '</strong></div>';
+            }
+            
+            messages.forEach(msg => {
+                const messageDiv = document.createElement('div');
+                
+                if (msg.user === 'SYSTEM') {
+                    messageDiv.className = 'status';
+                    messageDiv.textContent = msg.text;
+                } else {
+                    messageDiv.className = 'message ' + (msg.user === currentUser ? 'own' : 'other');
+                    messageDiv.innerHTML = `
+                        <div>${msg.text}</div>
+                        <div class="message-info">${msg.user} • ${msg.timestamp}</div>
+                    `;
+                }
+                
+                messagesDiv.appendChild(messageDiv);
+            });
+            
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            
+            // Update users count
+            document.getElementById('onlineUsers').textContent = `Users in room: ${users.size}`;
+        }
+        
+        // Handle Enter key in message input
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('messageInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+            
+            // Auto-load if returning user
+            const savedUser = getFromStorage('currentUser');
+            const savedRoom = getFromStorage('currentRoom');
+            
+            if (savedUser && savedRoom) {
+                document.getElementById('username').value = savedUser;
+                document.getElementById('roomCode').value = savedRoom;
+            }
+        });
+        
+        // Clean up old messages periodically (keep last 24 hours only)
+        function cleanupOldMessages() {
+            const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+            messages = messages.filter(msg => {
+                const msgTime = parseInt(msg.id.split('_')[0]);
+                return msgTime > oneDayAgo;
+            });
+            saveToStorage('messages_' + currentRoom, messages);
+        }
+        
+        // Run cleanup every hour
+        setInterval(cleanupOldMessages, 60 * 60 * 1000);
+    </script>
+</body>
+</html>
