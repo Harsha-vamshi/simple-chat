@@ -1,2 +1,2 @@
 # simple-chat
-A simple web chat between keypay and ios phone.
+A simple web chat between keypad and ios phone.
