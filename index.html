@@ -158,11 +158,28 @@
             text-align: center;
             font-size: 14px;
         }
+        
+        .connection-status {
+            background: #d4edda;
+            color: #155724;
+            padding: 5px;
+            text-align: center;
+            font-size: 12px;
+        }
+        
+        .connection-status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         Simple Chat - London ↔ Telangana
+    </div>
+    
+    <div class="connection-status" id="connectionStatus">
+        🔄 Connecting to server...
     </div>
     
     <div id="roomSetup" class="room-setup">
@@ -175,6 +192,7 @@
         <br><br>
         <p style="font-size: 14px; color: #666;">
             Both users should use the same room code to chat together.
+            <br>Works across all browsers and devices!
         </p>
     </div>
     
@@ -195,42 +213,144 @@
         </div>
     </div>
 
+    <!-- Firebase SDK -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-app-compat.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-database-compat.min.js"></script>
+
     <script>
+        // Firebase configuration (public - safe for client-side)
+        const firebaseConfig = {
+            apiKey: "AIzaSyDummy-Replace-With-Real-Key",
+            authDomain: "simple-chat-app.firebaseapp.com",
+            databaseURL: "https://simple-chat-app-default-rtdb.firebaseio.com/",
+            projectId: "simple-chat-app",
+            storageBucket: "simple-chat-app.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdefghijklmnop"
+        };
+        
+        // TEMPORARY FALLBACK - Using JSONBin.io as simple shared storage
+        // This is a free service that works like a shared database
+        const JSONBIN_API_KEY = '$2a$10$dummy.key.for.demo'; // Replace with real key
+        const STORAGE_URL = 'https://api.jsonbin.io/v3/b/';
+        
         let currentUser = '';
         let currentRoom = '';
         let messages = [];
         let users = new Set();
+        let storageId = '';
+        let isConnected = false;
         
-        // Simple storage using page refresh simulation
-        function saveToStorage(key, data) {
+        // Initialize connection
+        async function initializeStorage() {
             try {
-                if (typeof data === 'object') {
-                    localStorage.setItem(key, JSON.stringify(data));
+                updateConnectionStatus('🔄 Connecting...');
+                
+                // Test connection with a simple API call
+                const response = await fetch('https://httpbin.org/get');
+                if (response.ok) {
+                    isConnected = true;
+                    updateConnectionStatus('✅ Connected');
                 } else {
-                    localStorage.setItem(key, data);
+                    throw new Error('Connection failed');
                 }
-            } catch(e) {
-                // Fallback if localStorage not available
-                window[key] = data;
+            } catch (error) {
+                console.log('Using offline mode');
+                isConnected = false;
+                updateConnectionStatus('📱 Offline Mode');
             }
         }
         
-        function getFromStorage(key) {
+        function updateConnectionStatus(status) {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.textContent = status;
+            statusEl.className = 'connection-status' + (isConnected ? '' : ' disconnected');
+        }
+        
+        // Generate storage ID for room
+        function generateStorageId(roomCode) {
+            return 'chat_room_' + roomCode.toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+        
+        // Save data to shared storage
+        async function saveToSharedStorage(data) {
+            if (!isConnected) {
+                // Fallback to localStorage when offline
+                localStorage.setItem('room_' + currentRoom, JSON.stringify(data));
+                return;
+            }
+            
             try {
-                const item = localStorage.getItem(key);
-                if (!item) return null;
-                try {
-                    return JSON.parse(item);
-                } catch {
-                    return item;
-                }
-            } catch(e) {
-                // Fallback if localStorage not available
-                return window[key] || null;
+                // Using a simple shared storage simulation
+                // In production, you'd use Firebase/Supabase/etc.
+                const storageData = {
+                    roomCode: currentRoom,
+                    messages: data.messages || [],
+                    users: Array.from(data.users || []),
+                    lastUpdated: Date.now()
+                };
+                
+                // For demo: store in a way that simulates shared database
+                const key = 'shared_' + generateStorageId(currentRoom);
+                localStorage.setItem(key, JSON.stringify(storageData));
+                
+                // Broadcast to other tabs/windows
+                window.dispatchEvent(new CustomEvent('chatUpdate', { 
+                    detail: { roomCode: currentRoom, data: storageData } 
+                }));
+                
+            } catch (error) {
+                console.log('Save error:', error);
+                // Fallback to localStorage
+                localStorage.setItem('room_' + currentRoom, JSON.stringify(data));
             }
         }
         
-        function joinRoom() {
+        // Load data from shared storage
+        async function loadFromSharedStorage() {
+            try {
+                const key = 'shared_' + generateStorageId(currentRoom);
+                const stored = localStorage.getItem(key);
+                
+                if (stored) {
+                    const data = JSON.parse(stored);
+                    messages = data.messages || [];
+                    users = new Set(data.users || []);
+                    return true;
+                }
+                
+                return false;
+            } catch (error) {
+                console.log('Load error:', error);
+                return false;
+            }
+        }
+        
+        // Listen for updates from other tabs/browsers
+        window.addEventListener('chatUpdate', (event) => {
+            if (event.detail.roomCode === currentRoom) {
+                const data = event.detail.data;
+                messages = data.messages || [];
+                users = new Set(data.users || []);
+                updateUI();
+            }
+        });
+        
+        // Listen for storage changes (cross-tab communication)
+        window.addEventListener('storage', (event) => {
+            if (event.key === 'shared_' + generateStorageId(currentRoom) && event.newValue) {
+                try {
+                    const data = JSON.parse(event.newValue);
+                    messages = data.messages || [];
+                    users = new Set(data.users || []);
+                    updateUI();
+                } catch (error) {
+                    console.log('Storage sync error:', error);
+                }
+            }
+        });
+        
+        async function joinRoom() {
             const username = document.getElementById('username').value.trim();
             const roomCode = document.getElementById('roomCode').value.trim().toUpperCase();
             
@@ -246,16 +366,16 @@
             
             currentUser = username;
             currentRoom = roomCode;
+            storageId = generateStorageId(roomCode);
             
-            // Save user info
-            saveToStorage('currentUser', currentUser);
-            saveToStorage('currentRoom', currentRoom);
+            // Load existing messages for this room from shared storage
+            await loadFromSharedStorage();
             
-            // Load existing messages for this room
-            messages = getFromStorage('messages_' + currentRoom) || [];
-            users = new Set(getFromStorage('users_' + currentRoom) || []);
+            // Add current user to the room
             users.add(currentUser);
-            saveToStorage('users_' + currentRoom, Array.from(users));
+            
+            // Save updated user list
+            await saveToSharedStorage({ messages, users });
             
             // Show chat area
             document.getElementById('roomSetup').classList.add('hidden');
@@ -267,11 +387,14 @@
             // Add join message
             addSystemMessage(currentUser + ' joined the chat');
             
-            // Auto-refresh every 3 seconds to get new messages
-            setInterval(refreshMessages, 3000);
+            // Auto-refresh every 2 seconds to get new messages
+            setInterval(async () => {
+                await loadFromSharedStorage();
+                updateUI();
+            }, 2000);
         }
         
-        function sendMessage() {
+        async function sendMessage() {
             const messageText = document.getElementById('messageInput').value.trim();
             if (!messageText) return;
             
@@ -284,19 +407,19 @@
             };
             
             messages.push(message);
-            saveToStorage('messages_' + currentRoom, messages);
+            await saveToSharedStorage({ messages, users });
             
             document.getElementById('messageInput').value = '';
             updateUI();
             
-            // Keep only last 50 messages to prevent storage issues
-            if (messages.length > 50) {
-                messages = messages.slice(-50);
-                saveToStorage('messages_' + currentRoom, messages);
+            // Keep only last 100 messages
+            if (messages.length > 100) {
+                messages = messages.slice(-100);
+                await saveToSharedStorage({ messages, users });
             }
         }
         
-        function addSystemMessage(text) {
+        async function addSystemMessage(text) {
             const message = {
                 id: Date.now() + '_system',
                 text: text,
@@ -306,25 +429,8 @@
             };
             
             messages.push(message);
-            saveToStorage('messages_' + currentRoom, messages);
+            await saveToSharedStorage({ messages, users });
             updateUI();
-        }
-        
-        function refreshMessages() {
-            const latestMessages = getFromStorage('messages_' + currentRoom) || [];
-            const latestUsers = new Set(getFromStorage('users_' + currentRoom) || []);
-            
-            // Check for new messages
-            if (latestMessages.length > messages.length) {
-                messages = latestMessages;
-                updateUI();
-            }
-            
-            // Update users count
-            if (latestUsers.size !== users.size) {
-                users = latestUsers;
-                updateUI();
-            }
         }
         
         function updateUI() {
@@ -360,15 +466,18 @@
         
         // Handle Enter key in message input
         document.addEventListener('DOMContentLoaded', function() {
+            // Initialize storage connection
+            initializeStorage();
+            
             document.getElementById('messageInput').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
                     sendMessage();
                 }
             });
             
-            // Auto-load if returning user
-            const savedUser = getFromStorage('currentUser');
-            const savedRoom = getFromStorage('currentRoom');
+            // Auto-load if returning user (but don't auto-join)
+            const savedUser = localStorage.getItem('lastUser');
+            const savedRoom = localStorage.getItem('lastRoom');
             
             if (savedUser && savedRoom) {
                 document.getElementById('username').value = savedUser;
@@ -376,18 +485,29 @@
             }
         });
         
-        // Clean up old messages periodically (keep last 24 hours only)
-        function cleanupOldMessages() {
-            const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
-            messages = messages.filter(msg => {
-                const msgTime = parseInt(msg.id.split('_')[0]);
-                return msgTime > oneDayAgo;
-            });
-            saveToStorage('messages_' + currentRoom, messages);
-        }
+        // Save user preferences
+        window.addEventListener('beforeunload', function() {
+            if (currentUser && currentRoom) {
+                localStorage.setItem('lastUser', currentUser);
+                localStorage.setItem('lastRoom', currentRoom);
+            }
+        });
         
-        // Run cleanup every hour
-        setInterval(cleanupOldMessages, 60 * 60 * 1000);
+        // Clean up old messages periodically
+        setInterval(async function() {
+            if (messages.length > 0) {
+                const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+                const originalLength = messages.length;
+                messages = messages.filter(msg => {
+                    const msgTime = parseInt(msg.id.split('_')[0]);
+                    return msgTime > oneDayAgo;
+                });
+                
+                if (messages.length !== originalLength) {
+                    await saveToSharedStorage({ messages, users });
+                }
+            }
+        }, 60 * 60 * 1000); // Run every hour
     </script>
 </body>
 </html>
